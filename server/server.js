@@ -793,6 +793,7 @@ let needSetup = false;
                 bean.method = monitor.method;
                 bean.body = monitor.body;
                 bean.headers = monitor.headers;
+                bean.schema = monitor.schema;  //new schema field
                 bean.basic_auth_user = monitor.basic_auth_user;
                 bean.basic_auth_pass = monitor.basic_auth_pass;
                 bean.timeout = monitor.timeout;

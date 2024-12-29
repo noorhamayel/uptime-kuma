@@ -1,3 +1,7 @@
+const toJsonSchema = require("to-json-schema");
+const Ajv = require("ajv"); // Library for schema validation
+const ajv = new Ajv();
+
 const dayjs = require("dayjs");
 const axios = require("axios");
 const { Prometheus } = require("../prometheus");
@@ -26,6 +30,43 @@ const https = require("https");
 const http = require("http");
 
 const rootCertificates = rootCertificatesFingerprints();
+
+
+
+
+/**
+ * Validate and parse the user schema before saving.
+ * @param {string} schema - User-provided schema as a JSON string.
+ * @throws Will throw an error if the schema is invalid.
+ */
+function validateUserSchemaBeforeSave(schema) {
+    if (!schema) {
+        console.log("No schema provided. Skipping validation.");
+        return null; // Return null if no schema is provided
+    }
+    try {
+        const userSchema = JSON.parse(schema); // Parse the schema
+        const validate = ajv.compile(userSchema); // Compile the schema
+        
+        // Trigger validation on a dummy object (AJV expects a validation pass)
+        validate({}); // Empty object used to validate schema syntax
+        
+        console.log("Schema validation passed before saving.");
+        return userSchema; // Return the parsed schema for further use
+    } catch (e) {
+        if (e.errors) {
+            // AJV validation errors
+            const errorMessages = e.errors.map(err => {
+                return `Error at path '${err.instancePath || "root"}': ${err.message}`;
+            }).join("; ");
+            throw new Error(`Invalid schema: ${errorMessages}`);
+        } else {
+            // General JSON or compilation errors
+            throw new Error(`Invalid schema: ${e.message}`);
+        }
+    }
+}
+
 
 /**
  * status:
@@ -186,6 +227,7 @@ class Monitor extends BeanModel {
                 kafkaProducerSaslOptions: JSON.parse(this.kafkaProducerSaslOptions),
                 rabbitmqUsername: this.rabbitmqUsername,
                 rabbitmqPassword: this.rabbitmqPassword,
+                schema: this.schema,
             };
         }
 
@@ -1038,6 +1080,22 @@ class Monitor extends BeanModel {
      * @returns {object} Axios response
      */
     async makeAxiosRequest(options, finalCall = false) {
+
+        let userSchemaObject;
+
+        try {
+
+            // Validate and parse schema before using it, if provided
+            if (this.schema) {
+                userSchemaObject = validateUserSchemaBeforeSave(this.schema);
+            }
+            
+        } catch (e) {
+            // Log and stop processing for invalid schema
+            console.error("Invalid schema format. Schema will not be saved:", e.message);
+            throw new Error(e.message); // Prevent further execution
+        }
+
         try {
             let res;
             if (this.auth_method === "ntlm") {
@@ -1052,7 +1110,42 @@ class Monitor extends BeanModel {
             } else {
                 res = await axios.request(options);
             }
+              console.log("Response received successfully.");
+            if (userSchemaObject) {
+            // Step 2: Generate the response schema
+            const responseSchema = toJsonSchema(res.data);
+            console.log("Generated response schema:", responseSchema);
+    
+            // Step 3: Validate response data against the user schema
+            const validateUserSchema = ajv.compile(userSchemaObject);
+            const isValid = validateUserSchema(res.data);
+    
+            if (!isValid) {
+                // Generate error messages based on mismatches
+                const errorMessages = validateUserSchema.errors.map(err => {
+                    let expectedType;
+                    
+                    // Attempt to extract the expected type from the error details
+                    if (err.keyword === "type" && err.params) {
+                        expectedType = err.params.type; // Extract expected type from ajv's error
+                    }
+                    
+                    // Construct error message
+                    return expectedType
+                        ? `Path '${err.instancePath}': expected type '${expectedType}', but received type '${typeof res.data?.[err.instancePath.replace('/', '')]}'.`
+                        : `Path '${err.instancePath}': ${err.message}`;
+                }).join("; ");
 
+                console.warn("Schema validation failed. Errors:", errorMessages);
+    
+                throw new Error(`Schema mismatch: ${errorMessages}`);
+            }
+    
+            console.log("Schema validation passed.");
+        } else {
+            console.log("No schema provided. Skipping validation.");
+        }
+        
             return res;
         } catch (error) {
 

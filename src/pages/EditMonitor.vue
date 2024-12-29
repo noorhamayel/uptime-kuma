@@ -880,6 +880,12 @@
                                     <textarea id="headers" v-model="monitor.headers" class="form-control" :placeholder="headersPlaceholder"></textarea>
                                 </div>
 
+                                <!-- Schema -->
+                                <div class="my-3">
+                                    <label for="schema" class="form-label">{{ $t("Schema") }}</label>
+                                    <textarea id="schema" v-model="monitor.schema" class="form-control"></textarea>
+                                </div>
+
                                 <!-- HTTP Auth -->
                                 <h4 class="mt-5 mb-2">{{ $t("Authentication") }}</h4>
 
